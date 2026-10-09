@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gaia}
+      POSTGRES_USER: ${POSTGRES_USER:-gaia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gaia_dev_change_me}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gaia} -d ${POSTGRES_DB:-gaia}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "5432:5432"
+    volumes:
+      - gaia_postgres:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-gaia}:${POSTGRES_PASSWORD:-gaia_dev_change_me}@db:5432/${POSTGRES_DB:-gaia}
+      ENVIRONMENT: development
+      WEB_ORIGIN: http://localhost:5173
+      BACKGROUND_ENABLED: "true"
+      SESSION_DAYS: "7"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "8000:8000"
+    volumes:
+      - gaia_uploads:/workspace/data/uploads
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    environment:
+      VITE_API_TARGET: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "5173:5173"
+
+volumes:
+  gaia_postgres:
+  gaia_uploads:

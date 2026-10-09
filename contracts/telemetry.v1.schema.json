@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gaia.local/contracts/telemetry.v1.schema.json",
+  "title": "GAIA telemetry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sensor_id", "timestamp", "source", "quality"],
+  "properties": {
+    "sensor_id": {"type": "string", "format": "uuid"},
+    "timestamp": {"type": "string", "format": "date-time", "description": "Timezone-aware instant; normalized to UTC."},
+    "source": {"enum": ["simulated", "device", "manual", "weather", "satellite"]},
+    "air_temperature_c": {"type": ["number", "null"], "minimum": -60, "maximum": 70},
+    "air_humidity_pct": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "soil_moisture_pct": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "light_lux": {"type": ["number", "null"], "minimum": 0, "maximum": 200000},
+    "pressure_hpa": {"type": ["number", "null"], "minimum": 800, "maximum": 1200},
+    "battery_pct": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "quality": {"enum": ["valid", "stale", "invalid"]},
+    "raw_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scenario": {"type": "string"},
+        "tick": {"type": "number"},
+        "firmware": {"type": "string"},
+        "model": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"root":["./src/map.tsx","./src/territory.tsx","./src/api.ts","./src/main.tsx","./src/pages.tsx","./src/types.ts","./src/vite-env.d.ts","./src/webmcp.ts","./src/foundation/devices.tsx","./src/foundation/plants.tsx","./src/foundation/profiles.tsx","./src/foundation/zones.tsx","./src/foundation/shared.tsx","./src/foundation/types.ts","./vite.config.ts"],"version":"6.0.3"}
