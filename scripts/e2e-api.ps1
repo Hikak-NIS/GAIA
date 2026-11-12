@@ -4,5 +4,7 @@ Set-Location $projectRoot
 $env:PYTHONPATH = "apps/api"
 & ".venv\Scripts\python.exe" -m alembic upgrade head
 if ($LASTEXITCODE -ne 0) { throw "Native command failed (exit $LASTEXITCODE)" }
-& ".venv\Scripts\python.exe" -m uvicorn gaia.main:app --app-dir apps/api --host 127.0.0.1 --port 8001 --workers 1
+& ".venv\Scripts\python.exe" scripts/seed_global_e2e.py
+if ($LASTEXITCODE -ne 0) { throw "E2E fixture failed (exit $LASTEXITCODE)" }
+& ".venv\Scripts\python.exe" scripts/run_e2e_api.py
 if ($LASTEXITCODE -ne 0) { throw "Native command failed (exit $LASTEXITCODE)" }

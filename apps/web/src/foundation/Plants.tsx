@@ -422,7 +422,6 @@ export function PlantDetail() {
           <select value={source} onChange={(e) => setSource(e.target.value)}>
             <option value="">Все, с отдельной маркировкой</option>
             <option value="REAL">REAL</option>
-            <option value="SIMULATED">SIMULATED</option>
           </select>
         </Field>
         {readings.isPending ? (

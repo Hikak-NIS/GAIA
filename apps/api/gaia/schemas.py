@@ -2,21 +2,27 @@ import math
 from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from pydantic import BaseModel, ConfigDict, Field, EmailStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, field_validator, model_validator, AliasChoices
 
 
 class Schema(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
-class Register(Schema):
+class NicknameIn(Schema):
+    nickname: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_]{3,32}$")
+
+
+class Register(NicknameIn):
     name: str = Field(min_length=1, max_length=100)
     email: EmailStr
     password: str = Field(min_length=10, max_length=128)
 
 
 class Login(Schema):
-    email: EmailStr
+    identifier: str = Field(
+        min_length=1, max_length=254, validation_alias=AliasChoices("identifier", "email", "nickname")
+    )
     password: str = Field(min_length=1, max_length=128)
 
 
@@ -24,6 +30,18 @@ class UserOut(Schema):
     id: str
     name: str
     email: str
+    nickname: str
+    role: Literal["user", "admin", "superadmin"]
+    email_verified_at: datetime | None = None
+
+
+class VerifyEmail(Schema):
+    challenge_id: str = Field(min_length=36, max_length=36)
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class ResendEmail(Schema):
+    challenge_id: str = Field(min_length=36, max_length=36)
 
 
 class TerritoryIn(Schema):

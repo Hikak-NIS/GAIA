@@ -36,9 +36,10 @@ export function useInventory(tid: string) {
   };
 }
 export function SourceBadge({ source }: { source: DataSource }) {
+  if (source !== "REAL") return null;
   return (
     <span className={`source-badge source-${source.toLowerCase()}`}>
-      {source === "REAL" ? "REAL · Устройство" : "SIMULATED · Симуляция"}
+      Прибор
     </span>
   );
 }

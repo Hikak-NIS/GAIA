@@ -11,3 +11,5 @@ python-multipart
 pillow
 pytest
 ruff
+earthengine-api
+scikit-learn

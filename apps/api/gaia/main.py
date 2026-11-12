@@ -40,7 +40,7 @@ async def lifespan(_):
             if sim.status == "running":
                 sim.status = "paused"
         db.commit()
-    task = asyncio.create_task(background_loop()) if settings.background_enabled else None
+    task = asyncio.create_task(background_loop()) if settings.background_enabled and settings.legacy_simulation_enabled else None
     yield
     if task:
         task.cancel()
@@ -60,6 +60,10 @@ app.add_middleware(
 
 @app.middleware("http")
 async def csrf(request: Request, call_next):
+    if not settings.legacy_simulation_enabled and request.url.path.startswith("/api/v1/territories/") and any(
+        segment in request.url.path.split("/") for segment in ("simulation", "irrigation")
+    ):
+        return JSONResponse({"detail": "Этот архивный модуль отключён. Используйте мониторинг по реальным устройствам."}, status_code=410)
     if (
         request.method in ("POST", "PUT", "PATCH", "DELETE")
         and request.url.path != "/api/v1/devices/telemetry"
@@ -75,7 +79,9 @@ async def csrf(request: Request, call_next):
     return response
 
 
-from .api.routes import legacy, foundation  # noqa: E402
+from .api.routes import legacy, foundation, global_workspace, earth  # noqa: E402
 
 app.include_router(legacy.router)
 app.include_router(foundation.router)
+app.include_router(global_workspace.router)
+app.include_router(earth.router)

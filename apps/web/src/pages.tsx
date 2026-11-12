@@ -21,6 +21,7 @@ import {
 import { api, ApiError, client, format } from "./api";
 import type { User, Territory, TerritoryInput } from "./types";
 import { TerritoryMap } from "./Map";
+import { NicknameEditor } from "./NicknameEditor";
 export function ErrorBox({ error }: { error: unknown }) {
   return error ? (
     <p role="alert" className="error">
@@ -92,13 +93,13 @@ export function Landing() {
             <em>ваш сад.</em>
           </h1>
           <p>
-            Наблюдайте за почвой и погодой. Настройте бережный полив. Начните с
-            виртуального участка — оборудование пока не нужно.
+            Наблюдайте за почвой, погодой и растениями. Объединяйте показания
+            устройств, спутниковые снимки и полевые наблюдения.
           </p>
           <Link className="button large" to="/register">
             Создать свой участок <ArrowUpRight size={20} />
           </Link>
-          <small>Бесплатный локальный MVP · Без физического насоса</small>
+          <small>GAIA Grow · Участки, растения и окружающая среда</small>
         </div>
         <div className="hero-panel">
           <div className="hero-panel-top">
@@ -130,7 +131,8 @@ export function Landing() {
             </p>
           </div>
           <div className="hero-footer">
-            <span className="dot" /> Симуляция сегодня. Датчики — следующий шаг.
+            <span className="dot" /> Наблюдения с источниками и временем
+            измерения.
           </div>
         </div>
       </main>
@@ -141,20 +143,120 @@ export function Landing() {
 export function AuthPage({ register = false }: { register?: boolean }) {
   const navigate = useNavigate();
   const [name, setName] = useState("");
+  const [nickname, setNickname] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [challenge, setChallenge] = useState<{
+    challenge_id: string;
+    email_hint: string;
+  } | null>(null);
+  const [code, setCode] = useState("");
   const mutation = useMutation({
-    mutationFn: () =>
-      api<User>(
+    mutationFn: async () => {
+      const result = await api<{
+        challenge_id: string;
+        email_hint: string;
+        verification_required: boolean;
+      }>(
         "/auth/" + (register ? "register" : "login"),
         "POST",
-        register ? { name, email, password } : { email, password },
-      ),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["me"] });
+        register
+          ? { name, nickname, email, password }
+          : { identifier: email, password },
+      );
+      if (
+        result.verification_required !== true ||
+        !result.challenge_id ||
+        !result.email_hint
+      ) {
+        throw new Error(
+          "Запущена устаревшая версия сервера GAIA. Остановите старый API на порту 8000 и запустите проект заново. Код подтверждения не был отправлен.",
+        );
+      }
+      return result;
+    },
+    onSuccess: (value) => {
+      setChallenge(value);
+      setCode("");
+    },
+  });
+  const verify = useMutation({
+    mutationFn: () =>
+      api<User>("/auth/verify-email", "POST", {
+        challenge_id: challenge?.challenge_id,
+        code,
+      }),
+    onSuccess: (user) => {
+      client.clear();
+      client.setQueryData(["me"], user);
       navigate("/app");
     },
   });
+  const resend = useMutation({
+    mutationFn: () =>
+      api<{ challenge_id: string; email_hint: string }>(
+        "/auth/resend-email",
+        "POST",
+        { challenge_id: challenge?.challenge_id },
+      ),
+    onSuccess: (value) => {
+      setChallenge(value);
+      setCode("");
+    },
+  });
+  if (challenge)
+    return (
+      <div className="auth-page">
+        <form
+          className="auth-card"
+          onSubmit={(e) => {
+            e.preventDefault();
+            verify.mutate();
+          }}
+        >
+          <h1>Подтвердите email</h1>
+          <p>
+            Код отправлен на {challenge.email_hint}. Он действует 10 минут.
+            Проверьте также папку «Спам».
+          </p>
+          <Field label="Код из письма">
+            <input
+              required
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+            />
+          </Field>
+          <ErrorBox error={verify.error || resend.error} />
+          <button disabled={verify.isPending}>
+            {verify.isPending ? "Проверяем…" : "Подтвердить и войти"}
+          </button>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={resend.isPending}
+            onClick={() => resend.mutate()}
+          >
+            Отправить код повторно
+          </button>
+          <p>Повторная отправка доступна через минуту.</p>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
+              setChallenge(null);
+              verify.reset();
+              resend.reset();
+            }}
+          >
+            Назад ко входу
+          </button>
+        </form>
+      </div>
+    );
   return (
     <div className="auth-page">
       <Link to="/" className="brand">
@@ -186,13 +288,31 @@ export function AuthPage({ register = false }: { register?: boolean }) {
             />
           </Field>
         )}
-        <Field label="Email">
+        {register && (
+          <Field label="Ник">
+            <input
+              aria-label="Ник"
+              aria-describedby="nickname-help"
+              required
+              minLength={3}
+              maxLength={32}
+              pattern="[A-Za-z0-9_]{3,32}"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              autoComplete="username"
+            />
+            <small id="nickname-help">
+              3–32 символа: латинские буквы, цифры и _.
+            </small>
+          </Field>
+        )}
+        <Field label={register ? "Email" : "Ник или email"}>
           <input
-            type="email"
+            type={register ? "email" : "text"}
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
+            autoComplete={register ? "email" : "username"}
           />
         </Field>
         <Field label="Пароль">
@@ -229,6 +349,7 @@ export function AppLayout() {
   const me = useQuery({
     queryKey: ["me"],
     queryFn: () => api<User>("/users/me"),
+    refetchInterval: 5000,
   });
   const territories = useQuery({
     queryKey: ["territories"],
@@ -247,7 +368,7 @@ export function AppLayout() {
       <aside className="sidebar">
         <Link className="brand" to="/app">
           <Leaf />
-          GAIA
+          GAIA GROW
         </Link>
         <span className="sidebar-caption">ПРОСТРАНСТВО ЗАБОТЫ</span>
         <NavLink to="/app" end>
@@ -258,6 +379,12 @@ export function AppLayout() {
           <Sprout size={19} />
           Профили растений
         </NavLink>
+        {me.data.role !== "user" && (
+          <NavLink to="/global">
+            <Leaf size={19} />
+            GAIA Global
+          </NavLink>
+        )}
         <div className="territory-links">
           {territories.data?.map((t) => (
             <NavLink to={"/app/territories/" + t.id} key={t.id}>
@@ -273,10 +400,10 @@ export function AppLayout() {
         <div className="sidebar-bottom">
           <div className="simulation-note">
             <Sprout />
-            <b>Растём постепенно</b>
+            <b>Наблюдение за участком</b>
             <p>
-              Полив работает в симуляции. Реальные показания доступны в
-              устройствах и растениях.
+              Подключите устройства, добавьте растения и сопоставляйте полевые
+              измерения с погодой и спутниковыми снимками.
             </p>
           </div>
           <NavLink to="/app/profile">
@@ -288,13 +415,14 @@ export function AppLayout() {
       <div className="workspace">
         <header className="topbar">
           <span>Наблюдайте. Понимайте. Заботьтесь.</span>
-          <span className="badge">Локальный MVP</span>
+          <span className="badge">GAIA GROW</span>
         </header>
         <nav className="mobile-navigation" aria-label="Главная навигация">
           <Link to="/app">Территории</Link>
           <Link to="/app/plant-profiles">Профили растений</Link>
           <Link to="/app/new">Новая территория</Link>
           <Link to="/app/profile">Аккаунт</Link>
+          {me.data.role !== "user" && <Link to="/global">GAIA Global</Link>}
         </nav>
         <main className="content">
           <Outlet />
@@ -352,8 +480,8 @@ export function DashboardPage() {
       {q.data?.length === 0 && (
         <Empty title="Добавьте свой первый участок">
           <p>
-            Выберите точку на карте, запустите засуху и посмотрите, как работает
-            автополив.
+            Выберите точку на карте, добавьте растения и подключите датчики для
+            наблюдения за участком.
           </p>
           <Link className="button" to="/app/new">
             Создать территорию
@@ -529,6 +657,24 @@ export function Profile() {
       <h1>Ваш профиль</h1>
       <h2>{q.data?.name}</h2>
       <p>{q.data?.email}</p>
+      {q.data && (
+        <>
+          <p>
+            Роль:{" "}
+            {q.data.role === "superadmin"
+              ? "Главный администратор"
+              : q.data.role === "admin"
+                ? "Администратор"
+                : "Пользователь"}
+          </p>
+          <NicknameEditor key={q.data.id} user={q.data} />
+          {q.data.role !== "user" && (
+            <p>
+              <Link to="/global">Открыть GAIA Global →</Link>
+            </p>
+          )}
+        </>
+      )}
       <p>Территории и наблюдения сохраняются в вашей учётной записи.</p>
       <button onClick={() => logout.mutate()} disabled={logout.isPending}>
         <LogOut size={18} />

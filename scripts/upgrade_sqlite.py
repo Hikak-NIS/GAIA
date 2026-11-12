@@ -13,16 +13,30 @@ sys.path.insert(0, str(ROOT / "apps/api"))
 from gaia.config import engine  # noqa: E402
 
 
-def snapshot(path):
+def snapshot(path, columns=None):
     with sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True) as db:
         names = [
             row[0]
             for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
             if row[0] != "alembic_version"
         ]
+        if columns is None:
+            columns = {
+                name: [r[1] for r in db.execute('PRAGMA table_info("' + name.replace('"', '""') + '")')]
+                for name in names
+            }
         return {
-            name: sorted(db.execute('SELECT * FROM "' + name.replace('"', '""') + '"').fetchall(), key=repr)
-            for name in names
+            name: sorted(
+                db.execute(
+                    "SELECT "
+                    + ",".join('"' + c.replace('"', '""') + '"' for c in fields)
+                    + ' FROM "'
+                    + name.replace('"', '""')
+                    + '"'
+                ).fetchall(),
+                key=repr,
+            )
+            for name, fields in columns.items()
         }
 
 
@@ -45,7 +59,7 @@ def main():
     backup_dir = ROOT / "data" / "backups"
     backup_dir.mkdir(exist_ok=True)
     suffix = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    backup = backup_dir / f"{path.stem}-before-phase1-{suffix}.db"
+    backup = backup_dir / f"{path.stem}-before-upgrade-{suffix}.db"
     trial = backup_dir / f"{path.stem}-upgrade-trial-{suffix}.db"
     with sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True) as source:
         with sqlite3.connect(backup) as destination:
@@ -53,17 +67,19 @@ def main():
         with sqlite3.connect(trial) as destination:
             source.backup(destination)
     original = snapshot(backup)
+    with sqlite3.connect(backup) as db:
+        columns = {name: [r[1] for r in db.execute('PRAGMA table_info("' + name + '")')] for name in original}
     if snapshot(path) != original:
         raise RuntimeError("Database changed during backup. Stop the API and retry")
     migrate(trial)
-    trial_rows = snapshot(trial)
+    trial_rows = snapshot(trial, columns)
     if any(trial_rows.get(name) != rows for name, rows in original.items()):
         raise RuntimeError("Trial upgrade changed existing data. Original database was not migrated")
     # The source must remain stopped; refuse to overwrite concurrent changes.
     if snapshot(path) != original:
         raise RuntimeError("Source database changed during trial. Original was not migrated")
     migrate(path)
-    actual = snapshot(path)
+    actual = snapshot(path, columns)
     if any(actual.get(name) != rows for name, rows in original.items()):
         raise RuntimeError(f"Existing data differs after upgrade. Preserved backup: {backup}")
     print(

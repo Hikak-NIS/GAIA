@@ -9,14 +9,14 @@ from ...foundation_schemas import DeviceIn
 from fastapi import APIRouter, Request, Response, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, or_
 from sqlalchemy.exc import IntegrityError
 from ... import models as m, schemas as s, domain as d, security as sec
 from ...config import utcnow, aware, ROOT
 from ...weather import weather
 from ..dependencies import DB, owner
 
-router = APIRouter(tags=["Existing MVP"])
+router = APIRouter(tags=["GAIA Grow"])
 
 
 @router.get("/api/v1/health", response_model=s.Message)
@@ -24,36 +24,78 @@ def health():
     return {"message": "ok"}
 
 
-@router.post("/api/v1/auth/register", response_model=s.UserOut, status_code=201)
+@router.post("/api/v1/auth/register", status_code=201)
 def register(body: s.Register, request: Request, response: Response, db=DB):
     email = str(body.email).lower()
     sec.rate_limit(db, request, email)
-    user = m.User(name=body.name.strip(), email=email, password_hash=sec.hasher.hash(body.password))
+    # Never grant privileges from a registration payload or an unverified email.
+    if body.nickname.lower() == "senqwir" or email == "gulnarapulatova9@gmail.com":
+        raise HTTPException(409, "Этот email или ник уже занят / зарезервирован")
+    user = m.User(
+        name=body.name.strip(),
+        nickname=body.nickname,
+        nickname_key=body.nickname.lower(),
+        role="user",
+        email=email,
+        password_hash=sec.hasher.hash(body.password),
+    )
     db.add(user)
     try:
         db.flush()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(409, "Этот email уже зарегистрирован") from exc
-    sec.login_session(db, user, response)
-    db.commit()
-    return user
+        raise HTTPException(409, "Этот email или ник уже зарегистрирован") from exc
+    return sec.email_challenge(db, user)
 
 
-@router.post("/api/v1/auth/login", response_model=s.UserOut)
+@router.post("/api/v1/auth/login")
 def login(body: s.Login, request: Request, response: Response, db=DB):
-    email = str(body.email).lower()
-    sec.rate_limit(db, request, email)
-    user = db.scalar(select(m.User).where(m.User.email == email))
+    identifier = body.identifier.strip().lower()
+    user = db.scalar(select(m.User).where(or_(m.User.email == identifier, m.User.nickname_key == identifier)))
+    # Both login aliases share the same per-account rate bucket.
+    sec.rate_limit(db, request, user.email if user else identifier)
     valid = sec.verify(body.password, user.password_hash if user else sec.DUMMY_HASH)
     if not user or not valid:
-        raise HTTPException(401, "Неверный email или пароль")
+        raise HTTPException(401, "Неверный ник, email или пароль")
+    old = request.cookies.get(sec.COOKIE)
+    if old:
+        db.execute(delete(m.AuthSession).where(m.AuthSession.token_hash == sec.digest(old)))
+    response.delete_cookie(sec.COOKIE, path="/")
+    return sec.email_challenge(db, user)
+
+
+@router.post("/api/v1/auth/verify-email", response_model=s.UserOut)
+def verify_email(body: s.VerifyEmail, request: Request, response: Response, db=DB):
+    challenge = db.get(m.EmailChallenge, body.challenge_id)
+    if not challenge or challenge.consumed or aware(challenge.expires_at) <= utcnow() or challenge.attempts >= 5:
+        raise HTTPException(400, "Код истёк или уже использован. Войдите заново.")
+    challenge.attempts += 1
+    if not secrets.compare_digest(challenge.code_hash, sec.digest(challenge.id + body.code)):
+        db.commit()
+        raise HTTPException(400, "Неверный код подтверждения")
+    challenge.consumed = True
+    user = db.get(m.User, challenge.user_id)
+    if user.email_verified_at is None:
+        db.execute(delete(m.AuthSession).where(m.AuthSession.user_id == user.id))
+    user.email_verified_at = user.email_verified_at or utcnow()
     old = request.cookies.get(sec.COOKIE)
     if old:
         db.execute(delete(m.AuthSession).where(m.AuthSession.token_hash == sec.digest(old)))
     sec.login_session(db, user, response)
     db.commit()
     return user
+
+
+@router.post("/api/v1/auth/resend-email")
+def resend_email(body: s.ResendEmail, request: Request, db=DB):
+    challenge = db.get(m.EmailChallenge, body.challenge_id)
+    if not challenge or challenge.consumed or aware(challenge.expires_at) <= utcnow():
+        raise HTTPException(400, "Войдите заново для получения кода")
+    if (utcnow() - aware(challenge.created_at)).total_seconds() < 60:
+        raise HTTPException(429, "Повторная отправка доступна через минуту")
+    user = db.get(m.User, challenge.user_id)
+    sec.rate_limit(db, request, user.email)
+    return sec.email_challenge(db, user)
 
 
 @router.post("/api/v1/auth/logout", response_model=s.Message)
@@ -69,6 +111,22 @@ def logout(request: Request, response: Response, db=DB):
 @router.get("/api/v1/users/me", response_model=s.UserOut)
 def me(request: Request, db=DB):
     return sec.current_user(request, db)
+
+
+@router.put("/api/v1/users/me/nickname", response_model=s.UserOut)
+def nickname_update(body: s.NicknameIn, request: Request, db=DB):
+    user = sec.current_user(request, db)
+    if user.role == "superadmin" and body.nickname != user.nickname:
+        raise HTTPException(409, "Ник главного администратора закреплён: SENQwir")
+    if body.nickname.lower() == "senqwir" and user.role != "superadmin":
+        raise HTTPException(409, "Этот ник зарезервирован")
+    user.nickname, user.nickname_key = body.nickname, body.nickname.lower()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Этот ник уже занят") from exc
+    return user
 
 
 @router.get("/api/v1/territories", response_model=list[s.TerritoryOut])

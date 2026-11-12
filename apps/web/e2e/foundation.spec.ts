@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { confirmEmail } from "./mailbox";
 
 test("профиль → зона → REAL-устройство → растение и показания", async ({
   page,
@@ -8,9 +9,11 @@ test("профиль → зона → REAL-устройство → растен
   page.on("dialog", (dialog) => dialog.accept());
   await page.goto("/register");
   await page.getByLabel("Ваше имя").fill("Анна Phase 1");
+  await page.getByLabel("Ник", { exact: true }).fill(`plant_${Date.now()}`);
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Пароль").fill("garden-pass-123");
   await page.getByRole("button", { name: "Создать аккаунт" }).click();
+  await confirmEmail(page, email);
   await page
     .getByRole("link", { name: "Профили растений", exact: true })
     .first()
@@ -41,7 +44,7 @@ test("профиль → зона → REAL-устройство → растен
     .click();
   await page.getByRole("button", { name: "Сохранить территорию" }).click();
   await expect(
-    page.getByRole("heading", { name: "Симуляция участка" }),
+    page.getByRole("heading", { name: "Полевые измерения" }),
   ).toBeVisible();
   const tid = page.url().match(/territories\/([^/]+)/)?.[1];
   expect(tid).toBeTruthy();
@@ -100,12 +103,9 @@ test("профиль → зона → REAL-устройство → растен
   await expect(
     page.locator("table").first().getByText("41,2 %", { exact: true }),
   ).toBeVisible();
-  await page
-    .getByLabel("Источник показаний растения")
-    .selectOption("SIMULATED");
   await expect(
-    page.getByText("Привязанных сенсоров нет.", { exact: true }),
-  ).toBeVisible();
+    page.getByRole("option", { name: "SIMULATED", exact: true }),
+  ).toHaveCount(0);
   await page.getByLabel("Источник показаний растения").selectOption("REAL");
   await expect(
     page.locator("table").first().getByText("41,2 %", { exact: true }),

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from conftest import register, territory
+from conftest import register, territory, verify_challenge
 
 
 def test_registration_session_login_logout(client):
@@ -21,6 +21,8 @@ def test_registration_session_login_logout(client):
         json={"email": "anna@example.com", "password": "garden-pass-123"},
     )
     assert response.status_code == 200
+    assert client.get("/api/v1/users/me").status_code == 401
+    verify_challenge(client, response)
     assert client.get("/api/v1/users/me").status_code == 200
 
 
@@ -29,12 +31,17 @@ def test_duplicate_email_and_password_validation(client):
     client.post("/api/v1/auth/logout")
     duplicate = client.post(
         "/api/v1/auth/register",
-        json={"name": "Другая", "email": "ANNA@example.com", "password": "garden-pass-456"},
+        json={
+            "name": "Другая",
+            "nickname": "AnotherUser",
+            "email": "ANNA@example.com",
+            "password": "garden-pass-456",
+        },
     )
     assert duplicate.status_code == 409
     weak = client.post(
         "/api/v1/auth/register",
-        json={"name": "Другая", "email": "other@example.com", "password": "short"},
+        json={"name": "Другая", "nickname": "AnotherUser", "email": "other@example.com", "password": "short"},
     )
     assert weak.status_code == 422
 

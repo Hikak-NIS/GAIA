@@ -5,7 +5,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from gaia import models as m
 from gaia.config import utcnow
@@ -31,16 +31,38 @@ def snapshot(path):
             for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
             if r[0] != "alembic_version"
         ]
-        return {name: sorted(db.execute(f'SELECT * FROM "{name}"').fetchall(), key=repr) for name in names}
+        result = {}
+        for name in names:
+            columns = [
+                r[1]
+                for r in db.execute(f'PRAGMA table_info("{name}")')
+                if name != "users" or r[1] not in ("nickname", "nickname_key", "role", "email_verified_at")
+            ]
+            projection = ",".join('"' + column + '"' for column in columns)
+            result[name] = sorted(db.execute(f'SELECT {projection} FROM "{name}"').fetchall(), key=repr)
+        return result
 
 
 def legacy_database(path):
     run_migration(path, "upgrade", "10f579997c3a")
     engine = create_engine("sqlite:///" + path.as_posix())
     with Session(engine) as db:
-        user = m.User(name="Migration", email="migration@example.com", password_hash="test-only-hash")
-        db.add(user)
-        db.flush()
+        user = m.User(
+            id=m.uid(), name="Migration", email="migration@example.com", password_hash="test-only-hash"
+        )
+        # This fixture is intentionally pre-nickname schema; do not insert using the latest ORM columns.
+        db.execute(
+            text(
+                "INSERT INTO users (id,name,email,password_hash,created_at) VALUES (:id,:name,:email,:password,:created)"
+            ),
+            {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "password": user.password_hash,
+                "created": utcnow().isoformat(),
+            },
+        )
         yard = m.Territory(owner_id=user.id, name="Старая территория", latitude=43, longitude=76)
         db.add(yard)
         db.flush()

@@ -238,7 +238,8 @@ def test_ownership_links_transfers_and_cascade(client):
         == 401
     )
     assert client.put("/api/v1/sensor-channels/nonexistent/calibration", json={}).status_code == 401
-    client.post("/api/v1/auth/login", json={"email": "anna@example.com", "password": "garden-pass-123"})
+    from conftest import login
+    login(client, "anna@example.com")
     response = client.delete(f"/api/v1/territories/{tid}")
     assert response.status_code == 200, response.text
     with SessionLocal() as db:

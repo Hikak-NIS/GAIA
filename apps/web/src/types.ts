@@ -2,6 +2,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  nickname: string;
+  role: "user" | "admin" | "superadmin";
 }
 export interface Territory {
   id: string;

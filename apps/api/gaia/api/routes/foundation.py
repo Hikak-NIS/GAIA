@@ -4,6 +4,7 @@ from ... import models as m, foundation_models as f, foundation_schemas as s, se
 from ...schemas import Message, ReadingOut
 from ...services import foundation as service
 from ..dependencies import DB, owner
+from ...config import settings
 
 router = APIRouter(prefix="/api/v1", tags=["Foundation"])
 
@@ -108,6 +109,8 @@ def profile_delete(pid: str, request: Request, db=DB):
 @router.get("/territories/{tid}/devices", response_model=list[s.DeviceOut])
 def devices(tid: str, request: Request, source: s.Source | None = None, db=DB):
     owner(request, db, tid)
+    if not settings.legacy_simulation_enabled:
+        source = "REAL"
     query = select(f.Device).where(f.Device.territory_id == tid)
     if source:
         query = query.where(f.Device.source == source)
@@ -233,6 +236,8 @@ def plant_delete(pid: str, request: Request, db=DB):
 def plant_readings(
     pid: str, request: Request, source: s.Source | None = None, limit: int = Query(100, ge=1, le=1000), db=DB
 ):
+    if not settings.legacy_simulation_enabled:
+        source = "REAL"
     plant = owned(db, request, f.PlantInstance, pid)
     channels = list(
         db.scalars(select(f.SensorChannel).join(f.PlantSensorLink).where(f.PlantSensorLink.plant_id == pid))

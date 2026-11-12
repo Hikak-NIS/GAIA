@@ -14,6 +14,26 @@ class Settings(BaseSettings):
     web_origin: str = "http://localhost:5173"
     background_enabled: bool = True
     session_days: int = 7
+    legacy_simulation_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_security: str = "starttls"
+    openai_api_key: str = ""
+    openai_text_model: str = "gpt-4.1-mini"
+    openai_transcribe_model: str = "gpt-transcribe"
+    openai_speech_model: str = "gpt-4o-mini-tts"
+    openai_voice: str = "coral"
+    copernicus_client_id: str = ""
+    copernicus_client_secret: str = ""
+    earthdata_token: str = ""
+    firms_map_key: str = ""
+    gee_project: str = ""
+    gee_service_account: str = ""
+    gee_key_file: str = ""
+    openmeteo_api_key: str = ""
 
 
 settings = Settings()

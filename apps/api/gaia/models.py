@@ -1,5 +1,17 @@
 import uuid
-from sqlalchemy import String, Float, Boolean, ForeignKey, JSON, Integer, Text, UniqueConstraint, Index, text
+from sqlalchemy import (
+    String,
+    Float,
+    Boolean,
+    ForeignKey,
+    JSON,
+    Integer,
+    Text,
+    UniqueConstraint,
+    Index,
+    text,
+    CheckConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from .config import Base, utcnow
 from .utc_types import UTCDateTime
@@ -15,9 +27,25 @@ class Identity:
 
 class User(Identity, Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'admin', 'superadmin')", name="ck_users_role"),
+        Index(
+            "uq_single_superadmin",
+            "role",
+            unique=True,
+            sqlite_where=text("role = 'superadmin'"),
+            postgresql_where=text("role = 'superadmin'"),
+        ),
+    )
     name: Mapped[str] = mapped_column(String(100))
+    nickname: Mapped[str] = mapped_column(String(32), default=lambda: "user_" + uuid.uuid4().hex[:24])
+    nickname_key: Mapped[str] = mapped_column(
+        String(32), unique=True, default=lambda ctx: ctx.get_current_parameters()["nickname"].lower()
+    )
+    role: Mapped[str] = mapped_column(String(20), default="user", server_default="user")
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    email_verified_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     created_at: Mapped[object] = mapped_column(UTCDateTime(), default=utcnow)
 
 
@@ -32,6 +60,16 @@ class LoginAttempt(Identity, Base):
     __tablename__ = "login_attempts"
     key: Mapped[str] = mapped_column(String(64), index=True)
     timestamp: Mapped[object] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class EmailChallenge(Identity, Base):
+    __tablename__ = "email_challenges"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[object] = mapped_column(UTCDateTime())
+    created_at: Mapped[object] = mapped_column(UTCDateTime(), default=utcnow)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    consumed: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Territory(Identity, Base):
@@ -191,3 +229,4 @@ class DailyReport(TerritoryChild, Base):
 
 # Register inventory models for Alembic and test metadata.
 from . import foundation_models as foundation_models  # noqa: E402,F401
+from . import global_models as global_models  # noqa: E402,F401
